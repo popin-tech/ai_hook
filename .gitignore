@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# 環境變數（含 API Token，絕對不要上傳！）
+.env
+**/.env

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Recommendation Block Template</title>
+    <style>
+        #popin_recommend_ai {
+            background-color: rgba(222, 241, 234, 0.5);
+            border-radius: 8px;
+            padding: 16px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        .ai-recommend-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+            color: #006A7C;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .ai-recommend-icon {
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            position: relative;
+        }
+
+        .ai-recommend-title {
+            color: #006A7C;
+            font-weight: bold;
+            font-size: 1em;
+        }
+
+        .ai-recommend-list {
+            display: flex;
+            gap: 15px;
+            justify-content: space-between;
+        }
+
+        .ai-recommend-item {
+            background: #fff;
+            border-radius: 4px;
+            flex: 1;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            color: #252525;
+            font-size: 1.125em;
+            line-height: 1.5;
+            text-decoration: none;
+            box-sizing: border-box;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            word-break: break-all;
+            border: 1px solid transparent;
+            transition: border-color 0.2s, color 0.2s;
+            position: relative;
+        }
+
+        .ai-recommend-item:hover {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-decoration: none;
+            color: #FF5C1A;
+            border: 1px solid #FFDED1;
+        }
+
+        @media (min-width: 1025px) {
+            .ai-recommend-item {
+                min-height: 112px;
+                padding: 8px 16px;
+                box-sizing: border-box;
+                overflow: hidden;
+            }
+
+            .ai-recommend-text {
+                display: -webkit-box;
+                -webkit-box-orient: vertical;
+                -webkit-line-clamp: 3;
+                line-clamp: 3;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                word-break: break-all;
+                line-height: 1.5;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .ai-recommend-list {
+                flex-direction: column;
+            }
+
+            .ai-recommend-item {
+                min-height: 80px;
+                padding: 8px 16px;
+                box-sizing: border-box;
+                overflow: hidden;
+            }
+
+            .ai-recommend-text {
+                display: -webkit-box;
+                -webkit-box-orient: vertical;
+                -webkit-line-clamp: 2;
+                line-clamp: 2;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                word-break: break-all;
+                line-height: 1.5;
+            }
+
+            .skeleton-item {
+                height: 80px;
+                min-height: 80px;
+            }
+        }
+
+        /* Loading Skeleton Styles */
+        .ai-recommend-skeleton {
+            display: flex;
+            gap: 15px;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        .skeleton-item {
+            background: #fff;
+            border-radius: 4px;
+            padding: 12px 16px;
+            flex: 1;
+            height: 112px;
+            box-sizing: border-box;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            border: 1px solid #eee;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .skeleton-line {
+            height: 12px;
+            background: #e0e0e0;
+            border-radius: 6px;
+            width: 100%;
+            animation: pulse 1.5s infinite ease-in-out;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.5;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.5;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .ai-recommend-skeleton {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Start of AI Recommendation Block -->
+    <div id="popin_recommend_ai">
+        <div class="ai-recommend-header">
+            <div class="ai-recommend-icon">
+                <!-- 注意：廠商需確認此圖片路徑是否可讀取，或改為絕對路徑 -->
+                <img src="./images/ai_logo.png" alt="AI" width="40" height="40" style="width: 40px; height: auto;">
+            </div>
+            <div class="ai-recommend-title">想知道更多？AI 一次說給你聽！</div>
+        </div>
+
+        <div class="ai-recommend-list" id="ai_recommend_list" style="display: none;">
+            <!-- 連結與標題由廠商動態帶入 -->
+            <a href="https://ai.newtalk.tw/article/1" target="_blank" class="ai-recommend-item"
+                title="以下是 5 個關於「AI 發展的潛力與未來」的趨勢一次看">
+                <span class="ai-recommend-text">
+                    以下是 5 個關於「AI 發展的潛力與未來」的趨勢一次看以下是 5 個關於「AI 發展的潛力與未來」的趨勢一次看以下是 5 個關於「AI 發展的潛力與未來」的趨勢一次看以下是 5 個關於「AI
+                    發展的潛力與未來」的趨勢一次看以下是 5 個關於「AI 發展的潛力與未來」的趨勢一次看
+                </span>
+            </a>
+
+            <a href="https://ai.newtalk.tw/article/2" target="_blank" class="ai-recommend-item"
+                title="AI 無人駕駛 2030 年接管道路？專家解析未來交通新樣貌">
+                <span class="ai-recommend-text">
+                    AI 無人駕駛 2030 年接管道路？專家解析未來交通新樣貌
+                </span>
+            </a>
+
+            <a href="https://ai.newtalk.tw/article/3" target="_blank" class="ai-recommend-item"
+                title="從編織到飛船製造,AI 如何顛覆傳統產業?技術發展趨勢一次看">
+                <span class="ai-recommend-text">
+                    從編織到飛船製造,AI 如何顛覆傳統產業?技術發展趨勢一次看
+                </span>
+            </a>
+        </div>
+
+        <!-- Skeleton Loading State -->
+        <div class="ai-recommend-skeleton" id="ai_recommend_skeleton">
+            <div class="skeleton-item">
+                <div class="skeleton-line" style="width: 100%;"></div>
+                <div class="skeleton-line" style="width: 70%;"></div>
+            </div>
+            <div class="skeleton-item">
+                <div class="skeleton-line" style="width: 90%;"></div>
+                <div class="skeleton-line" style="width: 50%;"></div>
+            </div>
+            <div class="skeleton-item">
+                <div class="skeleton-line" style="width: 95%;"></div>
+                <div class="skeleton-line" style="width: 80%;"></div>
+            </div>
+        </div>
+    </div>
+    <!-- End of AI Recommendation Block -->
+
+    <script>
+        // 模擬資料載入
+        document.addEventListener("DOMContentLoaded", function () {
+            setTimeout(function () {
+                const skeleton = document.getElementById('ai_recommend_skeleton');
+                const list = document.getElementById('ai_recommend_list');
+
+                if (skeleton && list) {
+                    skeleton.style.display = 'none';
+                    list.style.display = 'flex';
+                }
+            }, 2000); // 2秒後顯示內容
+        });
+    </script>
+</body>
+
+</html>

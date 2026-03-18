@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>測試第二頁 - AI 文章生成</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .page-header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+        .page-header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .page-header .subtitle {
+            color: #666;
+            font-size: 16px;
+        }
+        .ai-container {
+            margin-top: 30px;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+        }
+        .ai-container h3 {
+            color: #666;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .url-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #007bff;
+        }
+        .url-info strong {
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>AI 文章生成頁面</h1>
+            <p class="subtitle">根據 URL 參數中的標題生成完整文章</p>
+        </div>
+        
+        <div class="url-info">
+            <strong>使用方法：</strong> 
+            在 URL 後面加上 <code>?title=您的標題</code> 參數<br>
+            <strong>範例：</strong> 
+            <code>test_page2.html?title=人工智慧在教育領域的應用前景</code>
+        </div>
+        
+        <div class="ai-container">
+            <h3>📝 AI 文章生成區域</h3>
+            <p style="text-align: center; color: #666;">以下區域將顯示 AI 生成的 800 字文章（含打字機效果）</p>
+            
+            <!-- 第二頁功能觸發容器 -->
+            <div id="popin_recommend_ai_res"></div>
+        </div>
+    </div>
+
+    <!-- 引入 Popin AI 模組 (修復版本) -->
+    <script src="popin_ai_module_fixed.js"></script>
+    
+    <script>
+        // 顯示當前 URL 參數資訊
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const title = urlParams.get('title');
+            
+            if (title) {
+                const infoDiv = document.querySelector('.url-info');
+                infoDiv.innerHTML += `<br><strong>當前標題參數：</strong> <span style="color: #28a745;">${title}</span>`;
+            } else {
+                const infoDiv = document.querySelector('.url-info');
+                infoDiv.innerHTML += `<br><strong style="color: #dc3545;">注意：</strong> 未偵測到 title 參數，請在 URL 後面加上 ?title=您的標題`;
+            }
+        });
+    </script>
+</body>
+</html>

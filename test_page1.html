@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>測試第一頁 - AI 智慧推薦</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .news_info .title .name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .news_content .articleBody.clearfix p {
+            margin-bottom: 15px;
+            text-align: justify;
+            color: #555;
+        }
+        .ai-container {
+            margin-top: 30px;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .ai-container h3 {
+            color: #666;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="news_info">
+            <div class="title">
+                <p class="name">AI人工智慧技術在醫療領域的突破性發展</p>
+            </div>
+        </div>
+        
+        <div class="news_content">
+            <div class="articleBody clearfix">
+                <p>人工智慧技術在醫療領域正經歷前所未有的快速發展，從診斷輔助到藥物研發，AI正在徹底改變傳統醫療模式。</p>
+                <p>根據最新研究報告指出，AI輔助診斷系統在某些疾病的檢測準確率已經超越人類醫師，特別是在影像醫學領域表現尤為突出。</p>
+                <p>機器學習演算法能夠快速分析大量醫療數據，識別出人類難以察覺的微細病變，為早期診斷和治療提供了強有力的支援。</p>
+                <p>除了診斷應用外，AI技術也在個人化醫療、藥物研發、手術機器人等領域展現出巨大潛力，預計將在未來十年內大幅提升醫療服務品質。</p>
+            </div>
+        </div>
+        
+        <div class="ai-container">
+            <h3>🤖 AI 智慧推薦區域</h3>
+            <p>以下區域將顯示 AI 生成的相關主題推薦</p>
+            
+            <!-- 第一頁功能觸發容器 -->
+            <div id="popin_recommend_ai"></div>
+        </div>
+    </div>
+
+    <!-- 引入 Popin AI 模組 (修復版本) -->
+    <script src="popin_ai_module_fixed.js"></script>
+</body>
+</html>
