@@ -3,8 +3,6 @@ import requests
 import json
 import base64
 import os
-import re
-import time
 from urllib.parse import urlparse
 from google.cloud import pubsub_v1
 import datetime
@@ -12,6 +10,8 @@ import logging
 import asyncio
 import aiohttp
 from dotenv import load_dotenv
+import hashlib
+from google.cloud import firestore
 
 # 載入 .env 檔案（本地開發用；GCP Cloud Run 直接使用控制台設定的環境變數）
 load_dotenv()
@@ -34,8 +34,9 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 # Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")  # 優先使用 API Key 模式
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "gemini")  # anthropic 或 gemini
+FIRESTORE_DB_NAME = os.environ.get("FIRESTORE_DB_NAME", "ai-ad-generate-db")
 
 # 啟動時驗證必要環境變數，若未設定則發出警告（便於 Cloud Run log 診斷）
 _is_local = os.path.exists(os.path.join(os.path.dirname(__file__), ".env"))
@@ -88,10 +89,14 @@ def get_current_project_id():
 
 PROJECT_ID = get_current_project_id()
 TOPIC_ID = "popin-ai-ad-logs" 
+GENERATE_TOPIC_ID = "popin-ai-ad-generate-topic"
 
-# Initialize Pub/Sub Publisher
+# Initialize Pub/Sub Publisher and Firestore Client
 publisher = None
+db = None
 publisher_init_error = None
+topic_path = None
+ai_topic_path = None
 
 if not PROJECT_ID:
     publisher_init_error = "Could not determine GCP Project ID. Please set GCP_PROJECT_ID env var."
@@ -100,10 +105,91 @@ else:
     try:
         publisher = pubsub_v1.PublisherClient()
         topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
-        logger.info(f"Pub/Sub initialized with Topic: {topic_path}")
+        ai_topic_path = publisher.topic_path(PROJECT_ID, GENERATE_TOPIC_ID)
+        logger.info(f"Pub/Sub initialized. topic: {topic_path}, ai_topic: {ai_topic_path}")
     except Exception as e:
         publisher_init_error = str(e)
         logger.error(f"Failed to initialize Pub/Sub publisher: {e}")
+        
+    try:
+        db = firestore.Client(project=PROJECT_ID, database=FIRESTORE_DB_NAME)
+        logger.info(f"Firestore client initialized successfully (DB: {FIRESTORE_DB_NAME}).")
+    except Exception as e:
+        logger.error(f"Failed to initialize Firestore Client: {e}")
+
+# ---------------------------------------------------------
+# [NEW] Lock 機制與工作推送 (方案 B)
+# ---------------------------------------------------------
+def try_acquire_lock(url):
+    """嘗試取得該 URL 的處理鎖，過期時間為 3 分鐘。"""
+    if not db:
+        logger.error("Firestore DB is not initialized, bypassing lock (will return True).")
+        return True
+        
+    try:
+        doc_id = hashlib.md5(url.encode('utf-8')).hexdigest()
+        doc_ref = db.collection('ai_article_locks').document(doc_id)
+        transaction = db.transaction()
+        
+        @firestore.transactional
+        def _update_in_transaction(t, ref):
+            snapshot = ref.get(transaction=t)
+            now = datetime.datetime.utcnow()
+            
+            if snapshot.exists:
+                data = snapshot.to_dict()
+                locked_until = data.get("locked_until")
+                if locked_until and locked_until.replace(tzinfo=None) > now:
+                    return False
+            
+            t.set(ref, {
+                "url": url,
+                "status": "processing",
+                "locked_until": now + datetime.timedelta(minutes=3)
+            })
+            return True
+            
+        return _update_in_transaction(transaction, doc_ref)
+    except Exception as e:
+        logger.error(f"Error acquiring lock: {e}")
+        return True
+
+def load_custom_config(domain):
+    """載入特定網域的自訂設定檔"""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), f"{domain}.json")
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading custom config for {domain}: {e}")
+    return None
+
+def release_lock(url):
+    """手動釋放鎖 (任務完成後調用)"""
+    if not db:
+        return
+    try:
+        doc_id = hashlib.md5(url.encode('utf-8')).hexdigest()
+        db.collection('ai_article_locks').document(doc_id).delete()
+    except Exception as e:
+        logger.error(f"Error releasing lock: {e}")
+
+async def publish_generate_task_async(url, title, shortfall, api_base, config_name=None):
+    if not publisher or not ai_topic_path:
+        return False, "Publisher or ai_topic_path not initialized"
+    try:
+        data = {"url": url, "title": title, "shortfall": shortfall, "api_base": api_base, "config_name": config_name}
+        data_str = json.dumps(data, ensure_ascii=False)
+        data_bytes = data_str.encode("utf-8")
+        loop = asyncio.get_running_loop()
+        future = publisher.publish(ai_topic_path, data_bytes)
+        message_id = await loop.run_in_executor(None, future.result)
+        logger.info(f"Published AI generation task ID: {message_id}")
+        return True, None
+    except Exception as e:
+        logger.error(f"Error publishing task: {e}")
+        return False, str(e)
 
 HEADERS = {
     "accept": "application/json",
@@ -207,13 +293,33 @@ async def insert_popin_article(session, original_url, ai_data, api_base):
                 print(f"InsertPopinArticle Failed: Status={response.status}, Response={resp_text}")
             return json.loads(resp_text)
     except Exception as e:
-        print(f"Error calling InsertPopinArticle: {e}")
-        return None
+        print(f"Error testing URL {original_url}: {e}")
+        return DEFAULT_API_BASE
 
-async def call_anthropic_api(session, title, count=5):
-    print(f"Entering call_anthropic_api with title={title}, count={count}")
-    """呼叫 Anthropic API 生成內容"""
-    prompt = f"""請根據這個主題「{title}」，按以下步驟：
+async def call_anthropic_api(session, title, count=5, custom_config=None):
+    print(f"Entering call_anthropic_api with title={title}")
+    
+    json_format_rules = f"""
+## 輸出格式要求
+- 數量：{count} 組內容。
+- 字數：每篇內文 600-700 字。
+- 排版：內文需適當分段，段落間「務必保留空行」。**每段開頭請縮排 2 格全形空格（　　）**。
+- 格式：僅輸出 JSON 資料，不要任何額外文字描述。
+
+[
+  {{
+    "ArticleTitle": "標題（30字內）",
+    "ArticleContent": "內容（600-700字，含首行縮排與空行）"
+  }},
+  ...
+]"""
+
+    if custom_config:
+        instruction = custom_config.get("instruction", "")
+        prompt = instruction.replace("{title}", title) + "\n\n" + json_format_rules
+        temperature = custom_config.get("temperature", 0.7)
+    else:
+        prompt = f"""請根據這個主題「{title}」，按以下步驟：
 【步驟1：標籤識別】
 先從主題和內容中提取所有相關標籤（人物、技術、興趣、產業、地點、現象等）
 【步驟2：標籤篩選】
@@ -230,111 +336,53 @@ async def call_anthropic_api(session, title, count=5):
 - 標題要有趣味性和知識性
 - 避免爭議性內容
 - 文章內容需適當分段，段落之間請務必保留空行以增加閱讀性，每段縮排2格
-請直接輸出{count}組高點閱的標題與文章內容，輸出需要{count}組內容用 json 格式，只要資料不需要其它額外文字描述。
-格式範例：
-[
-  {{
-    "ArticleTitle": "標題1",
-    "ArticleContent": "內容1"
-  }},
-  ...
-]"""
+{json_format_rules}"""
+        temperature = 0.7
 
-    url = "https://api.anthropic.com/v1/messages"
-    headers = {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-    }
-    data = {
-        "model": ANTHROPIC_MODEL,
-        "max_tokens": 10000,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ]
-    }
-    
     try:
-        async with session.post(url, headers=headers, json=data, timeout=aiohttp.ClientTimeout(total=90)) as response:
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+        
+        payload = {
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": 4000,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        
+        async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=90)) as response:
             resp_text = await response.text()
             print(f"Anthropic API Response: Status={response.status}, Body={resp_text}")
 
             if response.status == 200:
                 result = json.loads(resp_text)
-                content = result["content"][0]["text"]
+                text_content = result.get("content", [])[0].get("text", "")
+                
                 try:
-                    start = content.find('[')
-                    end = content.rfind(']') + 1
+                    start = text_content.find('[')
+                    end = text_content.rfind(']') + 1
                     if start != -1 and end != -1:
-                        json_str = content[start:end]
+                        json_str = text_content[start:end]
                         return json.loads(json_str), None
                     else:
-                        return [], f"Could not find JSON in AI response. Raw content: {content}"
+                        return [], f"Could not find JSON in AI response. Raw content: {text_content}"
                 except json.JSONDecodeError as e:
-                    return [], f"JSON Parse Error: {e}. Raw content: {content}"
-        return [], f"Anthropic API Error: {response.status} - {resp_text}"
+                    return [], f"JSON Parse Error: {e}. Raw content: {text_content}"
+            else:
+                return [], f"Anthropic API Error: {response.status} - {resp_text}"
     except Exception as e:
         return [], f"Error calling Anthropic API: {e}"
 
-async def call_gemini_api(session, title, count=5):
-    print(f"Entering call_gemini_api with title={title}")
-    """呼叫 Gemini API 生成內容 (Using google-genai SDK)"""
-#     prompt = f"""# Role / 角色設定
-# 你是一位精通大數據趨勢與大眾心理的「說故事高手」。你風格幽默、充滿洞見，擅長用淺顯易懂的語言拆解社會現象，讓讀者一旦開始閱讀就「滑梯式」地讀到停不下來。
-
-# # Task / 任務目標
-# 請針對主題「{title}」，執行以下步驟並生成 5 組高品質的新聞報導內容。
-
-# ## Step 1：標籤識別與篩選 (Internal Process)
-# 1. 提取標籤：從主題中識別人物、技術、興趣、產業、地點、現象等標籤。
-# 2. 標籤過濾：嚴格排除「政治、爭議、制度、敏感社會議題」。
-# 3. 主題延伸：基於篩選後的標籤生成 5 個切入點：
-#    - 1 組直接討論原主角/事件。
-#    - 4 組從科普、冷知識、生活實用、奇聞軼事等角度延伸。
-
-# ## Step 2：寫作規範 (Core Formula)
-# 每篇文章必須符合以下高品質寫作要求：
-# 1. **黃金開頭**：第一段必須在 50 字內引發共鳴或創造懸念，拒絕平鋪直敘。
-# 2. **視覺化描述**：多用動詞與感官詞彙（如：硫磺味、扭曲的金屬、閃爍的訊號），少用抽象形容詞。
-# 3. **滑梯節奏**：句子短、段落短。禁止使用「首先、其次、最後、綜上所述」等機器味連接詞。
-# 4. **台灣新聞風格**：標題需具備點擊誘因（30字內），內文語氣專業中帶有親和力。
-
-# ## Step 3：輸出格式要求
-# - 數量：5 組內容。
-# - 字數：每篇內文 600-700 字。
-# - 排版：內文需適當分段，段落間「務必保留空行」。**每段開頭請縮排 2 格全形空格（　　）**。
-# - 格式：僅輸出 JSON 資料，不要任何額外文字描述。
-
-# [
-#   {{
-#     "ArticleTitle": "標題（30字內）",
-#     "ArticleContent": "內容（600-700字，含首行縮排與空行）"
-#   }},
-#   ...
-# ]"""
-
-
-    prompt = f"""# Role / 角色設定
-你是一位資深新聞編輯與專題記者，擅長從單一新聞事件中抽絲剝繭，提供讀者具備「資訊增量」的深度分析。你的寫作風格嚴謹、客觀、具權威性，說話不帶冗餘的修飾詞，重點在於呈現事實背景與邏輯關聯。
-
-# 資訊增量 外部知識融合： 請運用你內建的知識庫，補足該事件在產業史、法律背景或過往類似判例中的數據與事實，使內容具備專業厚度。
-
-# 寫作規範 請依以下規範，撰寫「延伸閱讀文章」：
-1. 文章內容需嚴格基於原始新聞的標題合理延伸。
-2. 不可改寫原文標題，不得換句話說當作內文。
-3. 請提供與主題高度相關的延伸脈絡（背景資訊、前因後果、相關案例、同類型事件、可能後續影響）。
-4. 全篇必須與主題緊密相關，不可跳題。
-5. 多樣性要求：這 5 組內容需從不同維度切入（例如：法規面向、經濟影響、產業歷史、國際對比、專家觀點），確保讀者在閱讀不同組別時能獲得不重複的新資訊。且請至少在其中一或多組加入與主題有關的「近期時事」。
-6. 新聞語氣，禁止使用下列開頭：
-   - 「想像一下」 / 「試著想像」 / 「你是否曾經」
-   - 任何故事性或情境模擬開場
-7. 呈現方式需邏輯清楚、資訊增量明確，不可加入臆測或虛構內容。
-
-原始新聞標題：
-《{title}》
-
+async def call_gemini_api(session, title, count=5, custom_config=None):
+    print(f"Entering call_gemini_api with title={title}, count={count}")
+    
+    json_format_rules = f"""
 ## 輸出格式要求
-- 數量：5 組內容。
+- 數量：{count} 組內容。
 - 字數：每篇內文 600-700 字。
 - 排版：內文需適當分段，段落間「務必保留空行」。**每段開頭請縮排 2 格全形空格（　　）**。
 - 格式：僅輸出 JSON 資料，不要任何額外文字描述。
@@ -346,6 +394,33 @@ async def call_gemini_api(session, title, count=5):
   }},
   ...
 ]"""
+
+    if custom_config:
+        instruction = custom_config.get("instruction", "")
+        prompt = instruction.replace("{title}", title) + "\n\n" + json_format_rules
+        temperature = custom_config.get("temperature", 0.7)
+    else:
+        prompt = f"""# Role / 角色設定
+你是一位資深新聞編輯與專題記者，擅長從單一新聞事件中抽絲剝繭，提供讀者具備「資訊增量」的深度分析。你的寫作風格嚴謹、客觀、具權威性，說話不帶冗餘的修飾詞，重點在於呈現事實背景與邏輯關聯。
+
+# 資訊增量 外部知識融合： 請運用你內建的知識庫，補足該事件在產業史、法律背景或過往類似判例中的數據與事實，使內容具備專業厚度。
+
+# 寫作規範 請依以下規範，撰寫「延伸閱讀文章」：
+1. 文章內容需嚴格基於原始新聞的標題合理延伸。
+2. 文章內文可承接原文標題之重點進行撰寫，但不得直接複製或僅以改寫標題作為單一段落內容。文章標題需與原文標題語意相關，但不得完全相同。文章標題可進行適度改寫，但不得偏離原文重點或新增未提及資訊。
+3. 請提供與主題高度相關的延伸脈絡（背景資訊、前因後果、相關案例、同類型事件、可能後續影響）。
+4. 全篇必須與主題緊密相關，不可跳題。
+5. 多樣性要求：這 {count} 組內容需從不同維度切入（例如：法規面向、經濟影響、產業歷史、國際對比、專家觀點），確保讀者在閱讀不同組別時能獲得不重複的新資訊。且請至少在其中一或多組加入與主題有關的「近期時事」。
+6. 新聞語氣，禁止使用下列開頭：
+   - 「想像一下」 / 「試著想像」 / 「你是否曾經」
+   - 任何故事性或情境模擬開場
+7. 呈現方式需邏輯清楚、資訊增量明確，不可加入臆測或虛構內容。
+
+原始新聞標題：
+《{title}》
+
+{json_format_rules}"""
+        temperature = 0.7
 
     try:
         # Mimic successful curl command:
@@ -368,7 +443,17 @@ async def call_gemini_api(session, title, count=5):
                         {"text": prompt}
                     ]
                 }
-            ]
+            ],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": 6000,
+                "responseMimeType": "application/json",
+                "thinkingConfig": {
+                    "includeThoughts": False,
+                    #"thinkingLevel": "minimal"
+                    "thinkingBudget": 0
+                }
+            }
         }
         
         # Debug: Print request info
@@ -386,35 +471,35 @@ async def call_gemini_api(session, title, count=5):
                 result = json.loads(resp_text)
                 # Extract content from Gemini response structure
                 try:
-                    content = result["candidates"][0]["content"]["parts"][0]["text"]
+                    content_text = result["candidates"][0]["content"]["parts"][0]["text"]
                 except (KeyError, IndexError) as e:
                     return [], f"Unexpected API response structure: {e}. Raw content: {resp_text}"
                     
                 # 嘗試解析 JSON (處理可能的 Markdown code block)
                 try:
                     # 尋找 JSON 陣列的開始與結束
-                    start = content.find('[')
-                    end = content.rfind(']') + 1
+                    start = content_text.find('[')
+                    end = content_text.rfind(']') + 1
                     if start != -1 and end != -1:
-                        json_str = content[start:end]
+                        json_str = content_text[start:end]
                         return json.loads(json_str), None
                     else:
-                        return [], f"Could not find JSON in Gemini response. Raw content: {content}"
+                        return [], f"Could not find JSON in Gemini response. Raw content: {content_text}"
                 except json.JSONDecodeError as e:
-                    return [], f"JSON Parse Error: {e}. Raw content: {content}"
+                    return [], f"JSON Parse Error: {e}. Raw content: {content_text}"
             else:
                  return [], f"Gemini API Error: {response.status} - {resp_text}"
             
     except Exception as e:
         return [], f"Error calling Gemini API: {e}"
 
-async def test_api_response(session, title, provider="gemini", count=5):
+async def test_api_response(session, title, provider="gemini", count=5, custom_config=None):
     print(f"Entering test_api_response with title={title}, provider={provider}, count={count}")
     """測試 API 回應並直接印出結果"""
     if provider == "gemini":
-        result, error = await call_gemini_api(session, title, count)
+        result, error = await call_gemini_api(session, title, count, custom_config)
     else:
-        result, error = await call_anthropic_api(session, title, count)
+        result, error = await call_anthropic_api(session, title, count, custom_config)
     
     print("----- TEST RESULT -----")
     if error:
@@ -424,18 +509,18 @@ async def test_api_response(session, title, provider="gemini", count=5):
     print("-----------------------")
     return result
 
-async def get_ai_content(session, title, count=5):
+async def get_ai_content(session, title, count=5, custom_config=None):
     print(f"Switching AI Provider: {AI_PROVIDER}, count={count}")
     if AI_PROVIDER == "gemini":
-        return await call_gemini_api(session, title, count)
+        return await call_gemini_api(session, title, count, custom_config)
     else:
-        return await call_anthropic_api(session, title, count)
+        return await call_anthropic_api(session, title, count, custom_config)
 
 async def publish_log_message_async(data):
     """Publish log message to Pub/Sub in an async manner"""
-    if not publisher:
-        logger.error(f"Publisher not initialized. Init Error: {publisher_init_error}")
-        return False, f"Publisher not initialized. Init Error: {publisher_init_error}"
+    if not publisher or not topic_path:
+        logger.error(f"Publisher or topic_path not initialized. Init Error: {publisher_init_error}")
+        return False, f"Publisher or topic_path not initialized. Init Error: {publisher_init_error}"
         
     try:
         # 轉成 JSON bytes
@@ -443,7 +528,7 @@ async def publish_log_message_async(data):
         data_bytes = data_str.encode("utf-8")
         
         # 發送訊息 (在背景執行緒跑，避免阻塞 event loop)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future = publisher.publish(topic_path, data_bytes)
         message_id = await loop.run_in_executor(None, future.result)
         logger.info(f"Published async message ID: {message_id}")
@@ -536,21 +621,24 @@ async def _process_request_async(request):
         
         url = request_json['url']
         title = request_json['title']
+        config_name = request_json.get('config_name', '') # 取得自訂設定名稱
 
         async with aiohttp.ClientSession() as session:
             # [NEW] 測試模式
             if request_json.get('test_mode'):
                 provider = request_json.get('provider', 'gemini') # 預設測試 gemini
                 count = request_json.get('count', 5)
-                print(f"Test Mode Activated: provider={provider}, count={count}")
-                test_result = await test_api_response(session, title, provider, count)
+                # 測試模式也可以載入 config_name 進行測試
+                custom_config = load_custom_config(config_name) if config_name else None
+                print(f"Test Mode Activated: provider={provider}, count={count}, config={config_name}")
+                test_result = await test_api_response(session, title, provider, count, custom_config)
                 return (json.dumps(test_result, ensure_ascii=False), 200, headers)
             
             # 1. 清理 URL
             clean_target_url = clean_url(url)
             print(f"Processing URL: {clean_target_url}")
 
-            # 1.5 根據 URL 決定 API base
+            # 1.6 根據 URL 決定 API base (原 newtalk.tw PopIn 邏輯)
             api_base = get_api_base_from_url(url)
             print(f"Using API Base: {api_base}")
 
@@ -571,32 +659,25 @@ async def _process_request_async(request):
             if shortfall > 0:
                 print(f"Shortfall detected or Cache Miss: Need {shortfall} more articles (Have {len(existing_data)})")
                 
-                # 呼叫 AI 補足
-                ai_content, error_msg = await get_ai_content(session, title, count=shortfall)
-                
-                if ai_content:
-                    # 4. 寫入 DB
-                    insert_result = await insert_popin_article(session, clean_target_url, ai_content, api_base)
-                    if insert_result and insert_result.get("isSuccess"):
-                        print("Insert Success")
-                        # 5. 再次查詢 DB 以獲取完整資料
-                        recheck_result = await get_popin_article(session, clean_target_url, api_base)
-
-                        # 若重抓失敗或無資料，嘗試重試
-                        if not (recheck_result and recheck_result.get("isSuccess") and recheck_result.get("data")):
-                            print("Re-fetch empty or failed. Waiting to retry...")
-                            await asyncio.sleep(1) # async delay
-                            recheck_result = await get_popin_article(session, clean_target_url, api_base)
-
-                        if recheck_result and recheck_result.get("isSuccess") and recheck_result.get("data"):
-                            print(f"Re-fetch Success: Found {len(recheck_result['data'])} articles")
-                            final_data = recheck_result["data"]
-                        else:
-                             print(f"Re-fetch Failed after retry. Result: {recheck_result}")
+                # [方案 B] 呼叫 Lock 與異步發送，完全不卡住 HTTP
+                if try_acquire_lock(clean_target_url):
+                    success, error_msg = await publish_generate_task_async(
+                        url=clean_target_url,
+                        title=title,
+                        shortfall=shortfall,
+                        api_base=api_base,
+                        config_name=config_name
+                    )
+                    if success:
+                        print(f"Lock acquired, task published for {clean_target_url}")
                     else:
-                        print(f"Insert Failed: {insert_result}")
+                        print(f"Lock acquired but failed to publish task for {clean_target_url}: {error_msg}")
+                        release_lock(clean_target_url) # 發佈失敗，撤銷鎖
                 else:
-                    print(f"AI Generation Failed: {error_msg}")
+                    print(f"Task already running or locked for {clean_target_url}, HTTP skipped.")
+                
+                # 回傳 processing 狀態，讓前端維持 loading 並啟動 polling
+                return (json.dumps({"status": "processing"}, ensure_ascii=False), 200, headers)
             else:
                 print("Sufficient articles found, skipping AI generation.")
             
@@ -613,3 +694,80 @@ async def _process_request_async(request):
     except Exception as e:
         print(f"System Error: {e}")
         return (json.dumps({"error": str(e)}), 500, headers)
+
+# ---------------------------------------------------------
+# [NEW] 背景端 Worker 進入點
+# ---------------------------------------------------------
+@functions_framework.cloud_event
+def process_pubsub_worker(cloud_event):
+    """
+    Background worker triggered by Pub/Sub 'popin-ai-ad-generate-topic'.
+    專職處理耗時的 AI 生成工作與寫入 DB。
+    """
+    return asyncio.run(_process_pubsub_worker_async(cloud_event))
+
+async def _process_pubsub_worker_async(cloud_event):
+    logger.info("Entering _process_pubsub_worker_async")
+    
+    url = None
+    try:
+        if not cloud_event or not cloud_event.data or 'message' not in cloud_event.data:
+            logger.error("Invalid cloud_event payload")
+            return
+            
+        message_data = cloud_event.data['message']['data']
+        message_id = cloud_event.data['message'].get('messageId', '')
+        # Pub/Sub payload is base64 encoded
+        decoded_data = base64.b64decode(message_data).decode("utf-8")
+        task_info = json.loads(decoded_data)
+
+        url = task_info.get("url")
+        title = task_info.get("title")
+        shortfall = task_info.get("shortfall", 5)
+        api_base = task_info.get("api_base", DEFAULT_API_BASE)
+        config_name = task_info.get("config_name", "")
+
+        if not url or not title:
+            logger.error("Missing url or title in pubsub task")
+            return
+
+        # Pub/Sub at-least-once 去重：用 messageId 確保同一筆訊息只處理一次
+        if db and message_id:
+            dedup_ref = db.collection('processed_pubsub_messages').document(message_id)
+            try:
+                dedup_ref.create({
+                    "url": url,
+                    "processed_at": datetime.datetime.utcnow(),
+                    "expire_at": datetime.datetime.utcnow() + datetime.timedelta(days=1)
+                })
+                logger.info(f"Message {message_id} registered for processing.")
+            except Exception as e:
+                if 'already exists' in str(e).lower() or 'ALREADY_EXISTS' in str(e):
+                    logger.info(f"Duplicate message {message_id}, skipping.")
+                    return
+                else:
+                    logger.warning(f"Dedup check failed ({e}), proceeding anyway.")
+
+        logger.info(f"Background Task Started for: {url}, Need {shortfall} articles")
+
+        async with aiohttp.ClientSession() as session:
+            # 如果有收到 config_name，才讀取 custom config
+            custom_config = load_custom_config(config_name) if config_name else None
+            ai_content, error_msg = await get_ai_content(session, title, count=shortfall, custom_config=custom_config)
+            
+            if ai_content:
+                insert_result = await insert_popin_article(session, url, ai_content, api_base)
+                if insert_result and insert_result.get("isSuccess"):
+                    logger.info(f"Background Task Insert Success for {url}")
+                else:
+                    logger.error(f"Background Task Insert Failed: {insert_result}")
+            else:
+                logger.error(f"Background AI Generation Failed: {error_msg}")
+                
+    except Exception as e:
+        logger.error(f"Error in background worker: {e}")
+    finally:
+        # 解除 Lock
+        if url:
+             release_lock(url)
+             logger.info(f"Released lock for {url}")
