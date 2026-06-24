@@ -736,6 +736,10 @@ async def _process_pubsub_worker_async(cloud_event):
         shortfall = task_info.get("shortfall", 5)
         api_base = task_info.get("api_base", DEFAULT_API_BASE)
         config_name = task_info.get("config_name", "")
+        # 正式生成的「預設 prompt」：前端未帶 config_name 時，套用環境變數 DEFAULT_CONFIG_NAME 指定的 config（預設 newtalk）。
+        # 客戶選定方向後，只要在 ai-ad-generate 改這個環境變數即可秒切換（newtalk / newtalk_a / newtalk_b），不需動 code。
+        if not config_name:
+            config_name = os.environ.get("DEFAULT_CONFIG_NAME", "newtalk")
 
         if not url or not title:
             logger.error("Missing url or title in pubsub task")
