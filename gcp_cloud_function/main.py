@@ -296,7 +296,7 @@ async def insert_popin_article(session, original_url, ai_data, api_base):
         print(f"Error testing URL {original_url}: {e}")
         return DEFAULT_API_BASE
 
-async def call_anthropic_api(session, title, count=5, custom_config=None):
+async def call_anthropic_api(session, title, count=5, custom_config=None, source_url=None):
     print(f"Entering call_anthropic_api with title={title}")
     
     json_format_rules = f"""
@@ -377,7 +377,7 @@ async def call_anthropic_api(session, title, count=5, custom_config=None):
     except Exception as e:
         return [], f"Error calling Anthropic API: {e}"
 
-async def call_gemini_api(session, title, count=5, custom_config=None):
+async def call_gemini_api(session, title, count=5, custom_config=None, source_url=None):
     print(f"Entering call_gemini_api with title={title}, count={count}")
     
     json_format_rules = f"""
@@ -422,6 +422,12 @@ async def call_gemini_api(session, title, count=5, custom_config=None):
 {json_format_rules}"""
         temperature = 0.7
 
+    # 僅在「有帶 config_name（custom_config）」且有合法新聞網址時，啟用 url_context 讓 Gemini 直接讀原文內文當素材；
+    # 正式預設路徑（無 config_name）維持原樣、不受影響。
+    use_url_context = bool(custom_config) and bool(source_url) and str(source_url).startswith("http")
+    if use_url_context:
+        prompt += f"\n\n請先讀取下列新聞網址的完整內文，作為撰寫的主要素材（標題與內文都要貼合內文事實）：\n{source_url}"
+
     try:
         # Mimic successful curl command:
         # Endpoint: https://aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent
@@ -456,11 +462,15 @@ async def call_gemini_api(session, title, count=5, custom_config=None):
             }
         }
         
+        # 啟用 url_context 工具：讓 Gemini 讀取 source_url 的內文
+        if use_url_context:
+            payload["tools"] = [{"url_context": {}}]
+
         # Debug: Print request info
         print(f"Calling Gemini API (Requests): {url}")
         print(f"Gemini API Prompt: {prompt}")
         
-        async with session.post(url, params=params, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=60)) as response:
+        async with session.post(url, params=params, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=120 if use_url_context else 60)) as response:
             resp_text = await response.text()
             
             # Debug: Print full text response
@@ -493,13 +503,13 @@ async def call_gemini_api(session, title, count=5, custom_config=None):
     except Exception as e:
         return [], f"Error calling Gemini API: {e}"
 
-async def test_api_response(session, title, provider="gemini", count=5, custom_config=None):
+async def test_api_response(session, title, provider="gemini", count=5, custom_config=None, source_url=None):
     print(f"Entering test_api_response with title={title}, provider={provider}, count={count}")
     """測試 API 回應並直接印出結果"""
     if provider == "gemini":
-        result, error = await call_gemini_api(session, title, count, custom_config)
+        result, error = await call_gemini_api(session, title, count, custom_config, source_url)
     else:
-        result, error = await call_anthropic_api(session, title, count, custom_config)
+        result, error = await call_anthropic_api(session, title, count, custom_config, source_url)
     
     print("----- TEST RESULT -----")
     if error:
@@ -509,12 +519,12 @@ async def test_api_response(session, title, provider="gemini", count=5, custom_c
     print("-----------------------")
     return result
 
-async def get_ai_content(session, title, count=5, custom_config=None):
+async def get_ai_content(session, title, count=5, custom_config=None, source_url=None):
     print(f"Switching AI Provider: {AI_PROVIDER}, count={count}")
     if AI_PROVIDER == "gemini":
-        return await call_gemini_api(session, title, count, custom_config)
+        return await call_gemini_api(session, title, count, custom_config, source_url)
     else:
-        return await call_anthropic_api(session, title, count, custom_config)
+        return await call_anthropic_api(session, title, count, custom_config, source_url)
 
 async def publish_log_message_async(data):
     """Publish log message to Pub/Sub in an async manner"""
@@ -631,7 +641,7 @@ async def _process_request_async(request):
                 # 測試模式也可以載入 config_name 進行測試
                 custom_config = load_custom_config(config_name) if config_name else None
                 print(f"Test Mode Activated: provider={provider}, count={count}, config={config_name}")
-                test_result = await test_api_response(session, title, provider, count, custom_config)
+                test_result = await test_api_response(session, title, provider, count, custom_config, source_url=url)
                 return (json.dumps(test_result, ensure_ascii=False), 200, headers)
             
             # 1. 清理 URL
@@ -753,7 +763,7 @@ async def _process_pubsub_worker_async(cloud_event):
         async with aiohttp.ClientSession() as session:
             # 如果有收到 config_name，才讀取 custom config
             custom_config = load_custom_config(config_name) if config_name else None
-            ai_content, error_msg = await get_ai_content(session, title, count=shortfall, custom_config=custom_config)
+            ai_content, error_msg = await get_ai_content(session, title, count=shortfall, custom_config=custom_config, source_url=url)
             
             if ai_content:
                 insert_result = await insert_popin_article(session, url, ai_content, api_base)
