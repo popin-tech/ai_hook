@@ -5,3 +5,12 @@ __pycache__/
 # 環境變數（含 API Token，絕對不要上傳！）
 .env
 **/.env
+
+# 本機虛擬環境
+.venv/
+venv/
+
+# 測試腳本與輸出（測試打 AI API、產生的樣本資料）
+gcp_cloud_function/tests/
+*_result.json
+*.pdf
