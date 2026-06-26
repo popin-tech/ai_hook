@@ -508,29 +508,43 @@
     </div>
 
     <!-- =========================================================
-         打字機效果（自行重寫，作用在原本的卡片標題上）
-         觸發時機：#popin_recommend_ai 捲進可視視窗才開始（只自動跑一次）
+         打字機效果（輪播循環）：一次只有一張卡片打字、其餘顯示完整標題，
+         依序 1→2→3→1 無限循環。#popin_recommend_ai 進入可視視窗才跑、捲離就暫停。
          ========================================================= -->
     <script>
         (function () {
             var SPEED = 55;        // 每個字的間隔（毫秒）
-            var GAP = 350;         // 卡片之間的停頓（毫秒）
+            var HOLD = 900;        // 一張打完、換下一張前的停頓（毫秒）
             var START_DELAY = 300; // 進入視窗後、開始打字前的延遲（毫秒）
 
+            var widget = document.getElementById('popin_recommend_ai');
+            var els = widget ? Array.prototype.slice.call(widget.querySelectorAll('.ai-recommend-text')) : [];
+
             var timers = [];
+            var runId = 0;   // 每次啟動 +1；用來取消上一輪（捲離畫面 / 重播時）
 
             function clearTimers() {
                 timers.forEach(clearTimeout);
                 timers = [];
             }
 
-            function typeOne(el) {
+            // 全部顯示完整標題、移除游標
+            function fillAll() {
+                els.forEach(function (el) {
+                    el.textContent = el.getAttribute('data-text') || '';
+                    el.classList.remove('is-typing');
+                });
+            }
+
+            // 對單一張做打字機效果，完成後 resolve
+            function typeOne(el, myRun) {
                 return new Promise(function (resolve) {
                     var full = el.getAttribute('data-text') || '';
                     el.textContent = '';
                     el.classList.add('is-typing');
                     var i = 0;
                     (function step() {
+                        if (myRun !== runId) { resolve(); return; } // 已被取消
                         if (i <= full.length) {
                             el.textContent = full.substring(0, i);
                             i++;
@@ -543,54 +557,58 @@
                 });
             }
 
-            function run() {
+            // 啟動循環：1→2→3→1…，一次只有一張打字，其餘顯示完整
+            function startLoop() {
                 clearTimers();
-                var els = document.querySelectorAll('#popin_recommend_ai .ai-recommend-text');
-                els.forEach(function (el) {
-                    el.textContent = '';
-                    el.classList.remove('is-typing');
-                });
+                runId++;
+                var myRun = runId;
+                if (els.length === 0) return;
 
                 var idx = 0;
-                function next() {
-                    if (idx >= els.length) return;
-                    typeOne(els[idx]).then(function () {
-                        idx++;
-                        timers.push(setTimeout(next, GAP));
+                function nextCard() {
+                    if (myRun !== runId) return;
+                    // 其它張顯示完整標題（正在打字的那張交給 typeOne 清空重打）
+                    els.forEach(function (el, i) {
+                        if (i !== idx) {
+                            el.textContent = el.getAttribute('data-text') || '';
+                            el.classList.remove('is-typing');
+                        }
+                    });
+                    typeOne(els[idx], myRun).then(function () {
+                        if (myRun !== runId) return;
+                        idx = (idx + 1) % els.length;        // 循環到下一張
+                        timers.push(setTimeout(nextCard, HOLD));
                     });
                 }
-                timers.push(setTimeout(next, START_DELAY));
+                timers.push(setTimeout(nextCard, START_DELAY));
             }
 
-            // ===== 進入可視視窗才觸發（IntersectionObserver）=====
-            var widget = document.getElementById('popin_recommend_ai');
-            var started = false;
-
-            function startOnce() {
-                if (started) return;
-                started = true;
-                run();
+            // 停止循環（捲離畫面）：取消計時器、回到全部完整顯示
+            function stopLoop() {
+                runId++;          // 讓進行中的 step / Promise 失效
+                clearTimers();
+                fillAll();
             }
 
+            // 初始：先讓三張都正常顯示完整標題
+            fillAll();
+
+            // ===== 進入可視視窗才跑、捲離就暫停（IntersectionObserver）=====
             if ('IntersectionObserver' in window && widget) {
                 var io = new IntersectionObserver(function (entries) {
                     entries.forEach(function (entry) {
-                        // 模組有 35% 進入畫面即視為「可見」
-                        if (entry.isIntersecting) {
-                            startOnce();
-                            io.unobserve(entry.target);
-                        }
+                        if (entry.isIntersecting) startLoop();  // 露出 35% → 開始循環
+                        else stopLoop();                         // 捲離 → 暫停
                     });
                 }, { threshold: 0.35 });
                 io.observe(widget);
             } else {
-                // 不支援 IntersectionObserver 時的降級：直接開始
-                startOnce();
+                startLoop(); // 不支援 IntersectionObserver 時直接跑
             }
 
-            // 重播鈕：手動再播一次（不受 observer 限制）
+            // 重播鈕：從第一張重新開始循環
             var btn = document.getElementById('replay-btn');
-            if (btn) btn.addEventListener('click', run);
+            if (btn) btn.addEventListener('click', startLoop);
         })();
     </script>
 </body>
