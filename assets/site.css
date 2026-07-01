@@ -1,0 +1,175 @@
+/* =========================================================
+   Newtalk 客戶 Demo 共用樣式
+   （以專案 demo_typewriter.html 的仿 newtalk 版型為基礎）
+   ========================================================= */
+* { box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #f0f2f1;
+    color: #252525;
+    margin: 0;
+    line-height: 1.9;
+}
+a { color: #006A7C; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ===== 頂部品牌列 ===== */
+.site-header {
+    background: #fff;
+    border-bottom: 3px solid #006A7C;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+.site-header .inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+.brand { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; color: #222; }
+.brand .dot { color: #006A7C; }
+.brand a { color: inherit; }
+.nav { display: flex; gap: 16px; font-size: 15px; color: #444; }
+.nav span { cursor: default; }
+.nav span:hover { color: #006A7C; }
+.demo-badge {
+    margin-left: auto;
+    font-size: 12px;
+    color: #999;
+    border: 1px dashed #ccc;
+    border-radius: 6px;
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+
+/* ===== 廣告色塊（動態版位示意）===== */
+.ad-slot {
+    background: repeating-linear-gradient(45deg, #e7efed, #e7efed 10px, #f4f8f7 10px, #f4f8f7 20px);
+    color: #8aa39d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    letter-spacing: 1px;
+    border-radius: 6px;
+}
+.ad-leaderboard { max-width: 970px; height: 90px; margin: 16px auto 0; }
+.ad-inline { height: 250px; margin: 24px 0; }
+.ad-sidebar { height: 250px; margin-top: 18px; }
+.ad-footer { max-width: 970px; height: 90px; margin: 28px auto 10px; }
+
+/* ===== 主版型：內文 + 右側欄 ===== */
+.wrap {
+    max-width: 1188px;
+    margin: 20px auto;
+    padding: 0 16px;
+    display: grid;
+    grid-template-columns: 840px 320px;
+    gap: 28px;
+    align-items: start;
+}
+.main { background: #fff; border-radius: 6px; padding: 28px 32px 40px; }
+.breadcrumb { font-size: 13px; color: #999; margin-bottom: 12px; }
+.breadcrumb .cat { color: #006A7C; font-weight: 700; }
+.article-title { font-size: 30px; line-height: 1.4; font-weight: 800; margin: 0 0 16px; color: #1a1a1a; }
+.byline { font-size: 14px; color: #888; border-bottom: 1px solid #eee; padding-bottom: 16px; margin-bottom: 22px; }
+.byline .author { color: #333; font-weight: 600; }
+
+.article-body p { font-size: 18px; margin: 18px 0; color: #2b2b2b; }
+.article-body h3 { font-size: 19px; color: #1a1a1a; margin: 26px 0 8px; }
+.article-body ul.price { list-style: none; padding: 0; margin: 8px 0 18px; }
+.article-body ul.price li {
+    font-size: 17px; padding: 7px 12px; margin: 4px 0;
+    background: #f7faf9; border-left: 3px solid #006A7C; border-radius: 3px;
+}
+.article-figure { margin: 20px 0; text-align: center; }
+.article-figure img { width: 100%; max-height: 460px; object-fit: cover; border-radius: 6px; display: block; }
+.article-figure figcaption { font-size: 13px; color: #999; margin-top: 8px; }
+
+/* ===== 右側欄 ===== */
+.sidebar { background: #fff; border-radius: 6px; padding: 18px; }
+.sidebar h4 { margin: 0 0 14px; font-size: 18px; color: #222; border-left: 4px solid #006A7C; padding-left: 10px; }
+.col-item { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0f0f0; }
+.col-item .avatar {
+    width: 46px; height: 46px; border-radius: 50%; background: #d6e7e1; flex: 0 0 46px;
+    display: flex; align-items: center; justify-content: center; color: #006A7C; font-size: 16px; font-weight: 700;
+}
+.col-item .meta { font-size: 13px; }
+.col-item .meta .name { font-weight: 700; color: #333; }
+.col-item .meta .tag { color: #006A7C; margin-left: 6px; }
+.col-item .meta .ttl { color: #444; line-height: 1.5; margin-top: 2px; display: block; }
+
+@media (max-width: 1200px) {
+    .wrap { grid-template-columns: 1fr; }
+    .main { padding: 20px 18px 32px; }
+    .article-title { font-size: 24px; }
+}
+
+/* =========================================================
+   AI 智慧推薦 widget（沿用 popin_ai_module 樣式）
+   ========================================================= */
+#popin_recommend_ai {
+    background-color: rgba(222, 241, 234, 0.5);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 26px 0;
+    position: relative;
+    overflow: hidden;
+}
+.ai-recommend-header { display: flex; align-items: center; margin-bottom: 16px; color: #006A7C; font-weight: bold; font-size: 18px; }
+.ai-recommend-icon { margin-right: 10px; display: flex; align-items: center; }
+.ai-recommend-title { color: #006A7C; font-weight: bold; font-size: 1em; }
+.ai-recommend-list { display: flex; gap: 15px; justify-content: space-between; }
+.ai-recommend-item {
+    background: #fff; border-radius: 4px; padding: 8px 16px; flex: 1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); color: #252525; font-size: 1.125em; line-height: 1.74;
+    text-decoration: none; display: block; border: 1px solid transparent;
+    transition: border-color 0.2s, color 0.2s; position: relative;
+}
+.ai-recommend-item:hover { box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); text-decoration: none; color: #FF5C1A; border: 1px solid #FFDED1; }
+@media (min-width: 1025px) {
+    .ai-recommend-item { min-height: 112px; padding: 8px 16px; box-sizing: border-box; overflow: hidden; }
+    .ai-recommend-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; text-overflow: ellipsis; word-break: break-all; line-height: 1.5; }
+}
+@media (max-width: 1024px) {
+    .ai-recommend-list { flex-direction: column; }
+    .ai-recommend-item { min-height: 80px; padding: 8px 16px; box-sizing: border-box; overflow: hidden; }
+    .ai-recommend-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; text-overflow: ellipsis; word-break: break-all; line-height: 1.5; }
+}
+/* 打字機游標（只在正在打字的那段顯示並閃爍）*/
+.ai-recommend-text.is-typing::after,
+.ai-article-body p.is-typing::after {
+    content: ''; display: inline-block; width: 2px; height: 1em; margin-left: 2px;
+    background: #006A7C; vertical-align: text-bottom; animation: tw-blink 0.8s step-end infinite;
+}
+@keyframes tw-blink { 50% { opacity: 0; } }
+
+/* =========================================================
+   第二頁：AI 生成文章頁
+   ========================================================= */
+.ai-badge {
+    display: inline-block; font-size: 12px; color: #006A7C; background: #def1ea;
+    border-radius: 4px; padding: 3px 10px; margin-bottom: 14px; font-weight: 700;
+}
+.ai-article-body p { font-size: 18px; margin: 18px 0; color: #2b2b2b; min-height: 1.2em; }
+.ai-source-note { margin-top: 30px; padding-top: 16px; border-top: 1px solid #eee; font-size: 13px; color: #999; }
+.back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
+
+/* =========================================================
+   入口導覽頁
+   ========================================================= */
+.demo-hero { max-width: 1000px; margin: 40px auto 10px; padding: 0 16px; }
+.demo-hero h1 { font-size: 28px; color: #1a1a1a; margin: 0 0 8px; }
+.demo-hero p { color: #666; font-size: 15px; margin: 4px 0; }
+.demo-grid { max-width: 1000px; margin: 20px auto 60px; padding: 0 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.demo-card { background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: flex; flex-direction: column; }
+.demo-card img { width: 100%; height: 160px; object-fit: cover; display: block; }
+.demo-card .body { padding: 16px; flex: 1; display: flex; flex-direction: column; }
+.demo-card .cat { font-size: 12px; color: #006A7C; font-weight: 700; }
+.demo-card h3 { font-size: 17px; line-height: 1.5; margin: 6px 0 12px; color: #1a1a1a; }
+.demo-card .go { margin-top: auto; font-size: 14px; color: #fff; background: #006A7C; text-align: center; padding: 8px; border-radius: 5px; }
+@media (max-width: 800px) { .demo-grid { grid-template-columns: 1fr; } }
