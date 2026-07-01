@@ -45,9 +45,7 @@
         // 第一頁標題提取選擇器 (請媒體商調整為實際的標題選擇器)
         firstPageTitleSelector: 'div.news_info > div.title > p.name',
         // 模擬延遲時間（毫秒）
-        mockDelay: 2000,
-        // 除錯模式
-        debugMode: true
+        mockDelay: 2000
     };
 
     // ===========================================
